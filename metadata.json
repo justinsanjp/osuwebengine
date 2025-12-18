@@ -1,0 +1,5 @@
+{
+  "name": "Osu! Web Clone",
+  "description": "A high-performance rhythm game inspired by Osu!, featuring beatmap synchronization, scoring, and smooth animations.",
+  "requestFramePermissions": []
+}
