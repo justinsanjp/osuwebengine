@@ -13,7 +13,22 @@ A high-performance, browser-based rhythm game engine that faithfully recreates t
 [![GitHub](https://img.shields.io/badge/GitHub-osuwebengine-black.svg)](https://github.com/justinsanjp/osuwebengine)
 
 ---
+---
+## AI Notice
 
+This project was developed with partial assistance from **Gemini 3 Pro** via Google AI Studio.
+
+While AI was used as a supporting tool, a substantial portion of the codebase was written and designed manually. In several cases, AI-generated output required correction or replacement due to bugs or suboptimal implementations. Ensuring code quality and correctness remained a manual responsibility throughout the project.
+
+Estimated contribution breakdown:
+- ~35% AI-generated code  
+- ~15% AI-assisted revisions  
+- ~50% fully manual implementation  
+
+Transparency regarding the use of AI tools is important to me, and all architectural decisions, final implementations, and validations were made by myself.
+---
+
+---
 ## ✨ Features
 
 ### 🎵 Native .osz Import
