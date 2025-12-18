@@ -25,7 +25,7 @@ Estimated contribution breakdown:
 - ~15% AI-assisted revisions  
 - ~50% fully manual implementation  
 
-Transparency regarding the use of AI tools is important to me, and all architectural decisions, final implementations, and validations were made by the author.
+Transparency regarding the use of AI tools is important to me, and all architectural decisions, final implementations, and validations were made by myself.
 ---
 
 ## ✨ Features
