@@ -52,6 +52,38 @@ Minimal latency through direct `AudioContext` usage ensures perfect synchronizat
 - Comprehensive result screen with statistics
 
 ---
+---
+
+## Hosting (Advertisement)
+
+[![Nexo Systems — Cheap & Fair Hosting in Europe](https://nexo.systems/assets/media/branding/nexosystems-light.svg)](https://nexo.systems/a/justinsanjp)
+
+**Cheap & Fair Hosting in Europe — Nexo Systems**  
+If you are looking for affordable and reliable hosting within Europe, consider checking out **Nexo Systems** via the link above.
+
+**Disclaimer:** This project is **not officially partnered** with Nexo Systems. I personally participate in the **Nexo Systems affiliate program**. If you sign up using the link above, I may receive a small commission at no additional cost to you. This recommendation is based on personal experience and does not represent an official partnership or endorsement.
+
+---
+
+## Become a Partner / Supporter
+
+If you would like to support this project or be listed as a partner/supporter, you can do so by simply opening a new **GitHub Issue**.
+
+Please create an issue with the title:  
+**`Partner/Supporter: <Your Name or Organization>`**
+
+**Suggested Issue Template (copy & paste):**
+
+# Partner / Supporter Request
+
+**Name / Organization:**  
+**Type of Support:** (e.g. hosting, financial support, development, testing, other)  
+**Website / Contact:**  
+**Short Description of Support:**  
+**Optional: Logo URL for README listing:**  
+**Notes / Conditions:**
+
+---
 
 ## 🚀 Tech Stack
 
