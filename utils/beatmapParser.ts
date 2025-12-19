@@ -1,6 +1,6 @@
 
 import JSZip from 'jszip';
-import { Beatmap, HitObject, HitObjectType, TimingPoint } from '../types';
+import { Beatmap, HitObject, HitObjectType, TimingPoint, SkinData } from '../types';
 
 export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatmap> => {
   const lines = content.split(/\r?\n/);
@@ -18,6 +18,7 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
   for (let line of lines) {
     line = line.trim();
     if (!line || line.startsWith('//')) continue;
+    if (line.startsWith('----------') || line.startsWith('*****')) continue;
     if (line.startsWith('[') && line.endsWith(']')) {
       currentSection = line.slice(1, -1);
       continue;
@@ -49,7 +50,6 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
     }
 
     if (currentSection === 'Events') {
-      // Flexiblerer Regex für Hintergründe (0,0,"filename",x,y)
       const bgMatch = line.match(/^0,0,["']?([^"']+)["']?/i);
       if (bgMatch && !beatmap.backgroundUrl) {
         (beatmap as any).bgFilename = bgMatch[1].replace(/\\/g, '/');
@@ -87,7 +87,6 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
           obj.slides = parseInt(parts[6]);
           obj.pixelLength = parseFloat(parts[7]);
 
-          // Aktuellen Timing Point finden
           let currentTP = beatmap.timingPoints![0];
           let sliderVelocityMultiplier = 1.0;
           for (const tp of beatmap.timingPoints!) {
@@ -96,7 +95,6 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
                 currentTP = tp;
                 sliderVelocityMultiplier = 1.0;
               } else {
-                // Inherited points: beatLength is -100 / multiplier
                 sliderVelocityMultiplier = Math.max(0.1, -100 / tp.beatLength);
               }
             } else break;
@@ -104,7 +102,6 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
 
           const beatLength = currentTP ? currentTP.beatLength : 500;
           const sliderMultiplier = beatmap.sliderMultiplier || 1.4;
-          // Osu! Slider duration: (pixelLength / (100 * sliderMultiplier * velocityMultiplier)) * beatLength
           const duration = (obj.pixelLength / (sliderMultiplier * 100 * sliderVelocityMultiplier)) * beatLength;
           obj.endTime = time + duration * obj.slides;
         } else if (type === HitObjectType.SPINNER && parts.length >= 6) {
@@ -125,12 +122,35 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
   return beatmap;
 };
 
+export const loadOsk = async (file: File): Promise<SkinData> => {
+  const zip = await JSZip.loadAsync(file);
+  const skin: SkinData = {};
+  
+  const files = Object.keys(zip.files);
+  const mappings: Record<keyof SkinData, string> = {
+    cursor: 'cursor.png',
+    hitcircle: 'hitcircle.png',
+    approachcircle: 'approachcircle.png',
+    cursorTrail: 'cursortrail.png',
+    spinnerBottom: 'spinner-bottom.png',
+    spinnerTop: 'spinner-top.png'
+  };
+
+  for (const [key, filename] of Object.entries(mappings)) {
+    const zipFile = files.find(f => f.toLowerCase().endsWith(filename));
+    if (zipFile) {
+      const blob = await zip.files[zipFile].async('blob');
+      (skin as any)[key] = URL.createObjectURL(blob);
+    }
+  }
+  return skin;
+};
+
 export const loadOsz = async (file: File, audioCtx: AudioContext): Promise<Beatmap[]> => {
   const zip = await JSZip.loadAsync(file);
   const osuFiles = Object.keys(zip.files).filter(name => name.endsWith('.osu'));
   if (osuFiles.length === 0) return [];
 
-  // Audio finden
   const firstOsuContent = await zip.files[osuFiles[0]].async('text');
   const audioMatch = firstOsuContent.match(/AudioFilename\s*:\s*(.+)/);
   const audioFilename = audioMatch ? audioMatch[1].trim().replace(/\\/g, '/') : null;
@@ -152,7 +172,6 @@ export const loadOsz = async (file: File, audioCtx: AudioContext): Promise<Beatm
     let backgroundUrl: string | undefined;
     const bgName = (parsed as any).bgFilename;
     if (bgName) {
-      // Case-insensitive Suche nach der Bilddatei
       const imgFileInZip = Object.keys(zip.files).find(n => n.toLowerCase() === bgName.toLowerCase());
       if (imgFileInZip) {
         const bgBlob = await zip.files[imgFileInZip].async('blob');

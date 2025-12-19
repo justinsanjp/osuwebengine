@@ -1,6 +1,7 @@
 
 export enum GameState {
-  MENU = 'MENU',
+  MAIN_MENU = 'MAIN_MENU',
+  SONG_SELECT = 'SONG_SELECT',
   LOADING = 'LOADING',
   PLAYING = 'PLAYING',
   RESULTS = 'RESULTS'
@@ -16,6 +17,15 @@ export interface TimingPoint {
   time: number;
   beatLength: number;
   inherited: boolean;
+}
+
+export interface SkinData {
+  cursor?: string;
+  hitcircle?: string;
+  approachcircle?: string;
+  cursorTrail?: string;
+  spinnerBottom?: string;
+  spinnerTop?: string;
 }
 
 export interface HitObject {

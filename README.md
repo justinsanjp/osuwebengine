@@ -52,6 +52,8 @@ Minimal latency through direct `AudioContext` usage ensures perfect synchronizat
 - Comprehensive result screen with statistics
 
 ---
+
+
 ---
 
 ## Hosting (Advertisement)
@@ -84,6 +86,8 @@ Please create an issue with the title:
 **Notes / Conditions:**
 
 ---
+
+
 
 ## 🚀 Tech Stack
 
