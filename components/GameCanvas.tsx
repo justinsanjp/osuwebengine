@@ -49,7 +49,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, onFini
     Object.entries(skin).forEach(([key, url]) => {
       if (url) {
         const img = new Image();
-        // Fixed: cast url as string to avoid type error where Object.entries returns unknown values
         img.src = url as string;
         skinImages.current[key] = img;
       }
@@ -344,12 +343,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, onFini
       }
 
       // Cursor
+      // Vergrößert: Basis-Größe von 40 auf 110 angehoben für bessere Sichtbarkeit bei Skins
       if (skinImages.current.cursor) {
-        const cSize = 40 * t.scale;
+        const cSize = 110 * t.scale; 
         ctx.drawImage(skinImages.current.cursor, m.x - cSize/2, m.y - cSize/2, cSize, cSize);
       } else {
-        ctx.beginPath(); ctx.arc(m.x, m.y, 8 * t.scale, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill();
-        ctx.beginPath(); ctx.arc(m.x, m.y, 12 * t.scale, 0, Math.PI * 2); ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+        // Standard-Ball Cursor ebenfalls vergrößert
+        ctx.beginPath(); ctx.arc(m.x, m.y, 16 * t.scale, 0, Math.PI * 2); ctx.fillStyle = 'white'; ctx.fill();
+        ctx.beginPath(); ctx.arc(m.x, m.y, 24 * t.scale, 0, Math.PI * 2); ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
       }
 
       if (allDone && currentTime > beatmap.duration) { onFinish(scoreRef.current); return; }
