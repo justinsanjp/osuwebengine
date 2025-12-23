@@ -1,5 +1,4 @@
-
-import { HitObject, Beatmap, HitObjectType } from '../types';
+import { HitObject, Beatmap, HitObjectType, GameMode } from '../types';
 
 export const generateSampleBeatmap = (title: string, diff: string): Beatmap => {
   const objects: HitObject[] = [];
@@ -16,7 +15,8 @@ export const generateSampleBeatmap = (title: string, diff: string): Beatmap => {
       type: HitObjectType.CIRCLE,
       endTime: time,
       hit: false,
-      missed: false
+      missed: false,
+      hitSound: 0
     });
   }
 
@@ -34,6 +34,7 @@ export const generateSampleBeatmap = (title: string, diff: string): Beatmap => {
     objects,
     timingPoints: [],
     duration,
-    sourceFile: "generated"
+    sourceFile: "generated",
+    mode: GameMode.STANDARD
   };
 };

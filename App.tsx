@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { GameState, Beatmap, ScoreData, BeatmapSet, SkinData } from './types';
+import { GameState, Beatmap, ScoreData, BeatmapSet, SkinData, UserSettings, GameMode } from './types';
 import { loadOsz, loadOsk } from './utils/beatmapParser';
+import { DEFAULT_SETTINGS } from './constants';
 import GameCanvas from './components/GameCanvas';
 
 const App: React.FC = () => {
@@ -15,8 +16,19 @@ const App: React.FC = () => {
   const [activeSkin, setActiveSkin] = useState<SkinData | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
+  const [settings, setSettings] = useState<UserSettings>(() => {
+    const saved = localStorage.getItem('osu_settings');
+    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+  });
+
+  const [awaitingKey, setAwaitingKey] = useState<{mode: keyof UserSettings['keys'], index: number} | null>(null);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
   const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('osu_settings', JSON.stringify(settings));
+  }, [settings]);
 
   const getAudioCtx = () => {
     if (!audioCtxRef.current) {
@@ -80,6 +92,19 @@ const App: React.FC = () => {
     return () => stopPreview();
   }, [selectedSet, gameState]);
 
+  useEffect(() => {
+    if (!awaitingKey) return;
+    const handleKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      const newSettings = { ...settings };
+      newSettings.keys[awaitingKey.mode][awaitingKey.index] = e.key === " " ? "Space" : e.key.toLowerCase();
+      setSettings(newSettings);
+      setAwaitingKey(null);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [awaitingKey, settings]);
+
   const beatmapSets = useMemo(() => {
     const sets: Record<string, BeatmapSet> = {};
     allBeatmaps.forEach(m => {
@@ -98,6 +123,14 @@ const App: React.FC = () => {
     if (ctx.state === 'suspended') ctx.resume();
     setSelectedMap(map);
     setGameState(GameState.PLAYING);
+  };
+
+  const getModeIcon = (mode: GameMode) => {
+    switch(mode) {
+      case GameMode.TAIKO: return '🥁';
+      case GameMode.MANIA: return '🎹';
+      default: return '●';
+    }
   };
 
   return (
@@ -149,20 +182,47 @@ const App: React.FC = () => {
             </div>
           </div>
 
+          <div className="absolute bottom-6 text-white/30 text-xs font-bold uppercase tracking-widest text-center">
+            Disclaimer: This is a fan project and not affiliated with ppy Pty Ltd. <br/>
+            osu! is a trademark of ppy Pty Ltd.
+          </div>
+
           {/* Settings Popup */}
           {isSettingsOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl animate-in fade-in duration-300 p-6">
-              <div className="bg-[#111] border-4 border-pink-600 p-12 rounded-[3rem] shadow-[0_0_100px_rgba(236,72,153,0.3)] max-w-md w-full relative">
-                 <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 text-white/40 hover:text-white transition-colors p-2">
+              <div className="bg-[#111] border-4 border-pink-600 p-10 rounded-[3rem] shadow-[0_0_100px_rgba(236,72,153,0.3)] max-w-2xl w-full relative max-h-[90vh] flex flex-col">
+                 <button onClick={() => setIsSettingsOpen(false)} className="absolute top-6 right-6 text-white/40 hover:text-white transition-colors p-2 z-10">
                     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>
                  </button>
-                 <div className="text-center">
-                    <div className="text-6xl mb-6">⚙️</div>
-                    <h3 className="text-4xl font-black italic tracking-tighter text-pink-500 uppercase mb-4">Settings</h3>
-                    <p className="text-xl font-bold text-white/60 uppercase tracking-widest">This feature is coming soon in a future update!</p>
-                    <div className="mt-10 pt-10 border-t border-white/5">
-                       <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-pink-600 hover:bg-pink-500 py-4 rounded-2xl font-black italic text-xl transition-all transform hover:scale-105">UNDERSTOOD</button>
-                    </div>
+                 <div className="text-center mb-6">
+                    <h3 className="text-4xl font-black italic tracking-tighter text-pink-500 uppercase underline decoration-pink-500/30">Settings</h3>
+                 </div>
+                 
+                 <div className="flex-1 overflow-y-auto px-4 custom-scrollbar space-y-6">
+                    {Object.entries(settings.keys).map(([mode, keys]) => (
+                      <div key={mode} className="bg-white/5 p-4 rounded-2xl border border-white/10">
+                        <h4 className="text-xl font-black italic text-pink-300 uppercase mb-3">{mode.replace('mania', 'mania ')} Keys</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {keys.map((key, i) => (
+                            <button 
+                              key={i} 
+                              onClick={() => setAwaitingKey({mode: mode as any, index: i})}
+                              className={`flex-1 min-w-[60px] p-3 rounded-xl border transition-all uppercase font-bold text-sm ${
+                                awaitingKey?.mode === mode && awaitingKey?.index === i 
+                                  ? 'bg-pink-500 border-white text-white' 
+                                  : 'bg-black/40 border-white/10 hover:border-pink-500 text-white/80'
+                              }`}
+                            >
+                              {awaitingKey?.mode === mode && awaitingKey?.index === i ? '???' : key}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                 </div>
+
+                 <div className="mt-8 pt-6 border-t border-white/5">
+                    <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-pink-600 hover:bg-pink-500 py-4 rounded-2xl font-black italic text-xl transition-all transform hover:scale-[1.02] shadow-lg">SAVE & CLOSE</button>
                  </div>
               </div>
             </div>
@@ -201,7 +261,10 @@ const App: React.FC = () => {
                     {selectedSet.difficulties.map(d => (
                       <div key={d.id} onClick={() => startMap(d)} className={`group p-4 rounded-xl cursor-pointer transition-all border ${selectedMap?.id === d.id ? 'bg-pink-600 border-pink-400 shadow-lg' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:translate-x-2'}`}>
                          <div className="flex justify-between items-center">
-                            <span className="font-black italic text-xl">{d.difficulty}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-2xl opacity-70 group-hover:opacity-100 transition-opacity" title={GameMode[d.mode]}>{getModeIcon(d.mode)}</span>
+                              <span className="font-black italic text-xl">{d.difficulty}</span>
+                            </div>
                             <span className="text-xs bg-black/30 px-2 py-1 rounded">★ {d.difficultyValue.toFixed(2)}</span>
                          </div>
                       </div>
@@ -256,6 +319,7 @@ const App: React.FC = () => {
           beatmap={selectedMap} 
           audioCtx={getAudioCtx()}
           skin={activeSkin}
+          settings={settings}
           onFinish={(score) => { setLastScore(score); setGameState(GameState.RESULTS); }}
           onBack={() => setGameState(GameState.SONG_SELECT)}
         />

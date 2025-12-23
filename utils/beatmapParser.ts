@@ -1,6 +1,6 @@
 
 import JSZip from 'jszip';
-import { Beatmap, HitObject, HitObjectType, TimingPoint, SkinData } from '../types';
+import { Beatmap, HitObject, HitObjectType, TimingPoint, SkinData, GameMode } from '../types';
 
 export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatmap> => {
   const lines = content.split(/\r?\n/);
@@ -8,6 +8,7 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
     objects: [], 
     timingPoints: [],
     sourceFile,
+    mode: GameMode.STANDARD,
     approachRate: 5,
     circleSize: 5,
     overallDifficulty: 5,
@@ -22,6 +23,10 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
     if (line.startsWith('[') && line.endsWith(']')) {
       currentSection = line.slice(1, -1);
       continue;
+    }
+
+    if (currentSection === 'General') {
+      if (line.startsWith('Mode:')) beatmap.mode = parseInt(line.split(':')[1].trim());
     }
 
     if (currentSection === 'Metadata') {
@@ -63,6 +68,7 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
         const y = parseInt(parts[1]);
         const time = parseInt(parts[2]);
         const typeBitmask = parseInt(parts[3]);
+        const hitSound = parseInt(parts[4]); // Parse HitSound
         
         let type = HitObjectType.CIRCLE;
         if (typeBitmask & 2) type = HitObjectType.SLIDER;
@@ -70,7 +76,7 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
 
         const obj: HitObject = {
           id: beatmap.objects!.length,
-          x, y, time, type,
+          x, y, time, type, hitSound,
           hit: false,
           missed: false,
           endTime: time
@@ -133,7 +139,9 @@ export const loadOsk = async (file: File): Promise<SkinData> => {
     approachcircle: 'approachcircle.png',
     cursorTrail: 'cursortrail.png',
     spinnerBottom: 'spinner-bottom.png',
-    spinnerTop: 'spinner-top.png'
+    spinnerTop: 'spinner-top.png',
+    taikoInner: 'taiko-drum-inner.png',
+    taikoOuter: 'taiko-drum-outer.png'
   };
 
   for (const [key, filename] of Object.entries(mappings)) {

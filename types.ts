@@ -7,10 +7,25 @@ export enum GameState {
   RESULTS = 'RESULTS'
 }
 
+export enum GameMode {
+  STANDARD = 0,
+  TAIKO = 1,
+  CATCH = 2,
+  MANIA = 3
+}
+
 export enum HitObjectType {
   CIRCLE = 1,
   SLIDER = 2,
   SPINNER = 8
+}
+
+export interface UserSettings {
+  keys: {
+    standard: string[];
+    taiko: string[];
+    mania4k: string[];
+  };
 }
 
 export interface TimingPoint {
@@ -26,6 +41,8 @@ export interface SkinData {
   cursorTrail?: string;
   spinnerBottom?: string;
   spinnerTop?: string;
+  taikoInner?: string;
+  taikoOuter?: string;
 }
 
 export interface HitObject {
@@ -37,6 +54,7 @@ export interface HitObject {
   hit: boolean;
   missed: boolean;
   endTime: number;
+  hitSound: number; // Added for Taiko (Normal/Whistle/Finish/Clap)
   sliderPoints?: { x: number; y: number }[];
   pixelLength?: number;
   slides?: number;
@@ -56,6 +74,7 @@ export interface ScoreData {
 
 export interface Beatmap {
   id: string;
+  mode: GameMode;
   title: string;
   artist: string;
   creator: string;
