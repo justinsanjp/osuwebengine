@@ -15,6 +15,7 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [activeSkin, setActiveSkin] = useState<SkinData | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   
   const [settings, setSettings] = useState<UserSettings>(() => {
     const saved = localStorage.getItem('osu_settings');
@@ -29,6 +30,14 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('osu_settings', JSON.stringify(settings));
   }, [settings]);
+
+  // Check for first time visit
+  useEffect(() => {
+    const hasVisited = localStorage.getItem('osu_welcome_shown');
+    if (!hasVisited) {
+      setShowWelcomeModal(true);
+    }
+  }, []);
 
   const getAudioCtx = () => {
     if (!audioCtxRef.current) {
@@ -47,12 +56,14 @@ const App: React.FC = () => {
   const handleFiles = async (files: FileList | File[]) => {
     setIsLoading(true);
     const fileArray = Array.from(files);
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') await ctx.resume();
     
     for (const file of fileArray) {
       const ext = file.name.toLowerCase().split('.').pop();
       try {
         if (ext === 'osz') {
-          const maps = await loadOsz(file, getAudioCtx());
+          const maps = await loadOsz(file, ctx);
           setAllBeatmaps(prev => [...maps, ...prev]);
         } else if (ext === 'osk') {
           const skin = await loadOsk(file);
@@ -64,6 +75,63 @@ const App: React.FC = () => {
       }
     }
     setIsLoading(false);
+  };
+
+  const handleDownloadRecommended = async () => {
+    setShowWelcomeModal(false);
+    setIsLoading(true);
+    
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    // VITE CONFIGURATION NOTE:
+    // Files in the 'public' folder are served at the root path.
+    // Ensure your files are named '1.osz' and '2.osz' inside the 'public/beatmaps/' folder.
+    const recommendedFiles = [
+        '/beatmaps/1.osz',
+        '/beatmaps/2.osz'
+    ];
+    
+    const newMaps: Beatmap[] = [];
+    let successCount = 0;
+
+    for (const url of recommendedFiles) {
+        try {
+            console.log(`Versuche Beatmap zu laden: ${url}`);
+            const response = await fetch(url);
+            if (response.ok) {
+                const blob = await response.blob();
+                const maps = await loadOsz(blob, ctx);
+                if (maps.length > 0) {
+                    newMaps.push(...maps);
+                    successCount++;
+                    console.log(`Erfolg: ${url} geladen.`);
+                }
+            } else {
+                console.warn(`Fehler beim Laden von ${url}: Status ${response.status}`);
+            }
+        } catch (e) {
+            console.warn(`Netzwerkfehler bei ${url}`, e);
+        }
+    }
+
+    if (newMaps.length > 0) {
+        setAllBeatmaps(prev => [...newMaps, ...prev]);
+        // Force update trick if needed, or just set state
+        setTimeout(() => setGameState(GameState.SONG_SELECT), 100);
+    } else {
+        alert("Es wurden keine Beatmaps gefunden!\n\nBitte stelle sicher, dass im Ordner 'public/beatmaps/' die Dateien '1.osz' und '2.osz' liegen.");
+        // Still go to song select so they can drag & drop
+        setGameState(GameState.SONG_SELECT);
+    }
+
+    setIsLoading(false);
+    localStorage.setItem('osu_welcome_shown', 'true');
+  };
+
+  const skipWelcome = () => {
+    setShowWelcomeModal(false);
+    localStorage.setItem('osu_welcome_shown', 'true');
   };
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
@@ -117,6 +185,13 @@ const App: React.FC = () => {
     return Object.values(sets);
   }, [allBeatmaps]);
 
+  // Auto-select the first beatmap set if none is selected
+  useEffect(() => {
+    if (gameState === GameState.SONG_SELECT && !selectedSet && beatmapSets.length > 0) {
+        setSelectedSet(beatmapSets[0]);
+    }
+  }, [gameState, beatmapSets, selectedSet]);
+
   const startMap = (map: Beatmap) => {
     stopPreview();
     const ctx = getAudioCtx();
@@ -129,6 +204,7 @@ const App: React.FC = () => {
     switch(mode) {
       case GameMode.TAIKO: return '🥁';
       case GameMode.MANIA: return '🎹';
+      case GameMode.CATCH: return '🍎';
       default: return '●';
     }
   };
@@ -145,6 +221,29 @@ const App: React.FC = () => {
            <div className="text-center">
               <div className="text-9xl mb-4">📥</div>
               <div className="text-6xl font-black italic tracking-tighter">DROP .OSZ OR .OSK</div>
+           </div>
+        </div>
+      )}
+
+      {/* Welcome Modal */}
+      {showWelcomeModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in zoom-in duration-500 p-6">
+           <div className="bg-[#111] border-4 border-pink-600 p-10 rounded-[3rem] shadow-[0_0_100px_rgba(236,72,153,0.3)] max-w-lg w-full text-center relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 via-white to-pink-500 animate-pulse"></div>
+              <h2 className="text-5xl font-black italic text-white mb-6 uppercase drop-shadow-lg">Welcome!</h2>
+              <p className="text-xl text-white/80 mb-8 font-bold">
+                 First time here?<br/>
+                 We can download the provided beatmaps for you.
+              </p>
+              <div className="flex flex-col gap-4">
+                 <button onClick={handleDownloadRecommended} className="w-full bg-pink-600 hover:bg-pink-500 py-4 rounded-2xl font-black italic text-xl transition-all transform hover:scale-[1.02] shadow-lg uppercase flex items-center justify-center gap-2">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Download Maps
+                 </button>
+                 <button onClick={skipWelcome} className="w-full bg-white/5 hover:bg-white/10 py-3 rounded-2xl font-bold italic text-white/50 hover:text-white transition-all uppercase">
+                    No thanks, I have my own
+                 </button>
+              </div>
            </div>
         </div>
       )}
@@ -203,7 +302,7 @@ const App: React.FC = () => {
                       <div key={mode} className="bg-white/5 p-4 rounded-2xl border border-white/10">
                         <h4 className="text-xl font-black italic text-pink-300 uppercase mb-3">{mode.replace('mania', 'mania ')} Keys</h4>
                         <div className="flex flex-wrap gap-2">
-                          {keys.map((key, i) => (
+                          {(keys as string[]).map((key, i) => (
                             <button 
                               key={i} 
                               onClick={() => setAwaitingKey({mode: mode as any, index: i})}

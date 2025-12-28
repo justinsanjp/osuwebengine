@@ -128,7 +128,7 @@ export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatm
   return beatmap;
 };
 
-export const loadOsk = async (file: File): Promise<SkinData> => {
+export const loadOsk = async (file: Blob): Promise<SkinData> => {
   const zip = await JSZip.loadAsync(file);
   const skin: SkinData = {};
   
@@ -141,7 +141,13 @@ export const loadOsk = async (file: File): Promise<SkinData> => {
     spinnerBottom: 'spinner-bottom.png',
     spinnerTop: 'spinner-top.png',
     taikoInner: 'taiko-drum-inner.png',
-    taikoOuter: 'taiko-drum-outer.png'
+    taikoOuter: 'taiko-drum-outer.png',
+    catcherIdle: 'fruit-catcher-idle.png',
+    catcherKiai: 'fruit-catcher-kiai.png',
+    fruitApple: 'fruit-apple.png',
+    fruitGrapes: 'fruit-grapes.png',
+    fruitPear: 'fruit-pear.png',
+    fruitBanana: 'fruit-bananas.png'
   };
 
   for (const [key, filename] of Object.entries(mappings)) {
@@ -154,7 +160,7 @@ export const loadOsk = async (file: File): Promise<SkinData> => {
   return skin;
 };
 
-export const loadOsz = async (file: File, audioCtx: AudioContext): Promise<Beatmap[]> => {
+export const loadOsz = async (file: Blob, audioCtx: AudioContext): Promise<Beatmap[]> => {
   const zip = await JSZip.loadAsync(file);
   const osuFiles = Object.keys(zip.files).filter(name => name.endsWith('.osu'));
   if (osuFiles.length === 0) return [];

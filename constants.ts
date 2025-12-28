@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   keys: {
     standard: ['z', 'x'],
     taiko: ['x', 'c', 'v', 'b'],
-    mania4k: ['d', 'f', 'j', 'k']
+    mania4k: ['d', 'f', 'j', 'k'],
+    catch: ['ArrowLeft', 'ArrowRight', 'Shift']
   }
 };

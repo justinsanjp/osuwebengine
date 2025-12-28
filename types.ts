@@ -25,6 +25,7 @@ export interface UserSettings {
     standard: string[];
     taiko: string[];
     mania4k: string[];
+    catch: string[];
   };
 }
 
@@ -43,6 +44,13 @@ export interface SkinData {
   spinnerTop?: string;
   taikoInner?: string;
   taikoOuter?: string;
+  // Catch specific placeholders
+  catcherIdle?: string;
+  catcherKiai?: string;
+  fruitApple?: string;
+  fruitGrapes?: string;
+  fruitPear?: string;
+  fruitBanana?: string;
 }
 
 export interface HitObject {
@@ -59,6 +67,9 @@ export interface HitObject {
   pixelLength?: number;
   slides?: number;
   wasSpun?: boolean;
+  // Catch specific state
+  caughtDroplets?: Set<number>; // Stores indices of caught droplets
+  tailCaught?: boolean;         // Tracks if the slider tail was caught
 }
 
 export interface ScoreData {

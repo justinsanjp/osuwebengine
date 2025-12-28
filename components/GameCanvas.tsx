@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Beatmap, ScoreData, HitObject, HitObjectType, SkinData, UserSettings, GameMode } from '../types';
 import { COLORS, HIT_WINDOW_300, HIT_WINDOW_100, HIT_WINDOW_50 } from '../constants';
@@ -27,9 +26,25 @@ const TAIKO_HIT_X = 260;
 const MANIA_COL_WIDTH = 70;
 const MANIA_HIT_Y_OFFSET = 100; // Distance from bottom
 
+// Catch Constants
+const CATCHER_Y_OFFSET = 340; // The collision line (top of the plate)
+const CATCH_BASE_SPEED = 0.7; // Base movement speed
+const CATCH_DASH_SPEED = 1.4; // Dash speed multiplier
+const CATCH_FRUIT_SCALE = 0.7; // Scale relative to circle size
+
 // Helper for smooth movement
 const lerp = (start: number, end: number, factor: number) => {
   return start + (end - start) * factor;
+};
+
+// Helper for Catch Colors (Cycle based on index or x)
+const getFruitColor = (x: number, index: number) => {
+    // Simple cycle: Red (Apple), Blue (Grapes), Green (Pear), Orange (Orange)
+    const cycle = index % 4;
+    if (cycle === 0) return { fill: '#ff4444', border: '#aa2222', type: 'apple' }; 
+    if (cycle === 1) return { fill: '#4488ff', border: '#2244aa', type: 'grapes' }; 
+    if (cycle === 2) return { fill: '#88cc44', border: '#448822', type: 'pear' }; 
+    return { fill: '#ffaa44', border: '#cc6622', type: 'orange' }; 
 };
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settings, onFinish, onBack }) => {
@@ -37,6 +52,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
   const requestRef = useRef<number>(0);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
+  const lastFrameTime = useRef<number>(0);
   
   const objects = useRef<HitObject[]>(JSON.parse(JSON.stringify(beatmap.objects)));
   const nextHittableIndex = useRef<number>(0);
@@ -47,21 +63,30 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
 
   const transform = useRef({ scale: 1, offsetX: 0, offsetY: 0 });
   
-  // Raw input from hardware
+  // Standard input
   const mouseState = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2, isDown: false });
-  // Smooth visual position (what is actually drawn and hit-tested)
   const visualMouse = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-
-  // Store cursor history for trail effect {x, y, time}
   const cursorHistory = useRef<{x: number, y: number, time: number}[]>([]);
-
   const spinnerState = useRef({ currentAngle: 0, lastAngle: 0, totalRotation: 0, rpm: 0, lastTime: 0 });
-  const taikoDrumState = useRef({ 
-    leftInner: false, rightInner: false, leftOuter: false, rightOuter: false,
-    lastHitTime: 0
-  });
-  // Mania Key State (Array of 4 booleans for 4K)
+
+  // Taiko / Mania input
+  const taikoDrumState = useRef({ leftInner: false, rightInner: false, leftOuter: false, rightOuter: false, lastHitTime: 0 });
   const maniaKeyState = useRef<boolean[]>([false, false, false, false]);
+
+  // Catch input & state
+  const catcherState = useRef({ 
+    x: 256, // Center
+    width: 100, // Calculated based on CS
+    height: 20, // Plate height
+    isMovingLeft: false, 
+    isMovingRight: false, 
+    isDashing: false,
+    direction: 1, // 1 right, -1 left
+  });
+  
+  // Banana Rain State
+  const activeBananas = useRef<{x: number, y: number, speed: number, caught: boolean, id: number}[]>([]);
+  const lastBananaSpawn = useRef<number>(0);
 
   const skinImages = useRef<Record<string, HTMLImageElement>>({});
   const [displayScore, setDisplayScore] = useState(scoreRef.current);
@@ -74,6 +99,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
 
   const approachTime = getApproachTime(beatmap.approachRate);
   const circleRadius = (54.4 - 4.48 * beatmap.circleSize);
+
+  useEffect(() => {
+     if (beatmap.mode === GameMode.CATCH) {
+         // CS calculation for Catch:
+         // CS 0 -> Width ~130
+         // CS 10 -> Width ~30
+         // This formula approximates osu! stable values
+         const scale = (1.0 - 0.7 * (beatmap.circleSize - 5) / 5);
+         catcherState.current.width = 100 * scale; 
+     }
+  }, [beatmap]);
 
   // Scroll speeds
   const taikoScrollSpeed = (1.4 * beatmap.sliderMultiplier!) * 0.45; 
@@ -112,7 +148,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
   };
 
   // --- STANDARD INPUT HANDLING ---
-  // We use the coordinates passed in, which should be the VISUAL (smooth) coordinates
   const handleStandardInput = useCallback((clientX: number, clientY: number) => {
     const currentTime = (audioCtx.currentTime - startTimeRef.current) * 1000 - AUDIO_OFFSET;
     const t = transform.current;
@@ -185,7 +220,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
 
   // --- MANIA INPUT HANDLING ---
   const handleManiaInput = useCallback((columnIndex: number, isDown: boolean) => {
-    if (!isDown) return; // Only trigger on key down for basic hits
+    if (!isDown) return; 
     const currentTime = (audioCtx.currentTime - startTimeRef.current) * 1000 - AUDIO_OFFSET;
     const list = objects.current;
 
@@ -193,24 +228,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
       const obj = list[i];
       if (obj.hit || obj.missed) continue;
 
-      // Calculate column from X coordinate (0-512 range mapped to 0-3)
       const col = Math.floor(obj.x * 4 / 512);
-      
       if (col !== columnIndex) continue;
 
-      // Too far in future
-      if (obj.time - currentTime > HIT_WINDOW_50) {
-        break; 
-      }
+      if (obj.time - currentTime > HIT_WINDOW_50) break; 
 
       const timeDiff = Math.abs(currentTime - obj.time);
-
       if (timeDiff <= HIT_WINDOW_50) {
          obj.hit = true;
          if (timeDiff <= HIT_WINDOW_300) updateScore(300, '300');
          else if (timeDiff <= HIT_WINDOW_100) updateScore(100, '100');
          else updateScore(50, '50');
-         return; // Hit one object per key press
+         return; 
       }
     }
   }, [audioCtx]);
@@ -218,7 +247,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
 
   useEffect(() => {
     const move = (e: MouseEvent) => { 
-        // Just update raw hardware position
         if (beatmap.mode === GameMode.STANDARD) {
             mouseState.current.x = e.clientX; 
             mouseState.current.y = e.clientY;
@@ -233,7 +261,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
           const standardKeys = settings.keys.standard.map(k => k.toLowerCase());
           if (standardKeys.includes(k)) {
             mouseState.current.isDown = true;
-            // Use VISUAL mouse position for hit detection so you hit what you see
             handleStandardInput(visualMouse.current.x, visualMouse.current.y);
           }
       } else if (beatmap.mode === GameMode.TAIKO) {
@@ -249,6 +276,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
               maniaKeyState.current[index] = true;
               handleManiaInput(index, true);
           }
+      } else if (beatmap.mode === GameMode.CATCH) {
+          const catchKeys = settings.keys.catch.map(k => k.toLowerCase());
+          // Standard: ArrowLeft, ArrowRight, Shift
+          if (k === catchKeys[0] || e.key === "ArrowLeft") { 
+              catcherState.current.isMovingLeft = true; 
+              catcherState.current.direction = -1;
+          }
+          if (k === catchKeys[1] || e.key === "ArrowRight") { 
+              catcherState.current.isMovingRight = true;
+              catcherState.current.direction = 1;
+          }
+          if (k === catchKeys[2] || e.key === "Shift") catcherState.current.isDashing = true;
       }
       
       if (e.key === 'Escape') onBack();
@@ -271,13 +310,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
           if (index !== -1) {
               maniaKeyState.current[index] = false;
           }
+      } else if (beatmap.mode === GameMode.CATCH) {
+          const catchKeys = settings.keys.catch.map(k => k.toLowerCase());
+          if (k === catchKeys[0] || e.key === "ArrowLeft") catcherState.current.isMovingLeft = false;
+          if (k === catchKeys[1] || e.key === "ArrowRight") catcherState.current.isMovingRight = false;
+          if (k === catchKeys[2] || e.key === "Shift") catcherState.current.isDashing = false;
       }
     };
 
     const mousedown = (e: MouseEvent) => {
       if (beatmap.mode === GameMode.STANDARD) {
           mouseState.current.isDown = true;
-          // Use VISUAL mouse position
           handleStandardInput(visualMouse.current.x, visualMouse.current.y);
       }
     };
@@ -366,23 +409,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
     startTimeRef.current = audioCtx.currentTime + 0.5;
     source.start(startTimeRef.current);
     audioSourceRef.current = source;
+    lastFrameTime.current = performance.now();
 
     // --- DRAW LOOP ---
-    const draw = () => {
+    const draw = (now: number) => {
+      const delta = now - lastFrameTime.current;
+      lastFrameTime.current = now;
       const currentTime = (audioCtx.currentTime - startTimeRef.current) * 1000 - AUDIO_OFFSET;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Interpolate visual mouse towards raw mouse input
-      // Increased from 0.15 to 0.67 for much snappier response
-      const smoothingFactor = 0.67; 
-      visualMouse.current.x = lerp(visualMouse.current.x, mouseState.current.x, smoothingFactor);
-      visualMouse.current.y = lerp(visualMouse.current.y, mouseState.current.y, smoothingFactor);
-      
+      const t = transform.current;
       let allDone = true;
 
       if (beatmap.mode === GameMode.STANDARD) {
-          // --- STANDARD MODE RENDER ---
-          const t = transform.current;
+           // Interpolate visual mouse towards raw mouse input
+          const smoothingFactor = 0.82; 
+          visualMouse.current.x = lerp(visualMouse.current.x, mouseState.current.x, smoothingFactor);
+          visualMouse.current.y = lerp(visualMouse.current.y, mouseState.current.y, smoothingFactor);
           const m = visualMouse.current; // Use smooth position for rendering
           const list = objects.current;
 
@@ -496,16 +539,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
           }
 
           // --- CURSOR TRAIL LOGIC ---
-          const now = Date.now();
+          const n = Date.now();
           // Push current VISUAL mouse position to history
-          cursorHistory.current.push({ x: m.x, y: m.y, time: now });
-          cursorHistory.current = cursorHistory.current.filter(p => now - p.time < 120);
+          cursorHistory.current.push({ x: m.x, y: m.y, time: n });
+          cursorHistory.current = cursorHistory.current.filter(p => n - p.time < 120);
 
           // Draw trail
           if (skinImages.current.cursorTrail) {
              const tImg = skinImages.current.cursorTrail;
              cursorHistory.current.forEach(p => {
-                 const age = now - p.time;
+                 const age = n - p.time;
                  const opacity = 1 - (age / 120);
                  if (opacity > 0) {
                      ctx.globalAlpha = opacity * 0.6; // Slightly transparent trail
@@ -516,7 +559,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
           } else {
              // Default generic trail
              cursorHistory.current.forEach(p => {
-                 const age = now - p.time;
+                 const age = n - p.time;
                  const life = 1 - (age / 120);
                  if (life > 0) {
                      ctx.globalAlpha = life * 0.4;
@@ -540,7 +583,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
 
       } else if (beatmap.mode === GameMode.TAIKO) {
           // --- TAIKO MODE RENDER ---
-          const t = transform.current;
           const list = objects.current;
           
           // 1. Draw Background (Orange with stars)
@@ -752,22 +794,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
                 continue;
             }
 
-            // Map 0-512 X coords to 0-3 columns
             const col = Math.floor(obj.x * 4 / 512);
             if (col < 0 || col > 3) continue;
 
             const timeDiff = obj.time - currentTime;
             
             // Standard Down Scroll: 
-            // y = hitY - (timeDiff * speed)
-            // if timeDiff is positive (future), y is above hitY.
             const noteY = hitY - (timeDiff * maniaScrollSpeed);
 
             // Culling
-            if (noteY < -200) break; // Still far up (assuming sorted list roughly) - wait, sorted by time, so higher time means higher up (smaller Y). 
-            // Actually in osu, larger time = later. 
-            // noteY = hitY - (positive val) -> smaller Y (upwards).
-            // If noteY is way off screen top, we might stop processing if we assume time order.
+            if (noteY < -200) break; 
             
             // Miss check (passed line)
             if (noteY > window.innerHeight + 50 && !obj.hit) {
@@ -795,7 +831,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
             }
 
             // Draw Note Head
-            // Color pattern: White, Blue, Blue, White (standard 4K) or Pink/White
             const isPink = col === 1 || col === 2;
             ctx.fillStyle = isPink ? '#ff66aa' : '#ffffff';
             
@@ -806,6 +841,243 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
             ctx.fillStyle = 'rgba(0,0,0,0.2)';
             ctx.fillRect(kx + 6, noteY - noteHeight + 4, MANIA_COL_WIDTH - 12, noteHeight - 8);
           }
+      } else if (beatmap.mode === GameMode.CATCH) {
+          // --- CATCH MODE RENDER (CTB) ---
+          const t = transform.current;
+          const list = objects.current;
+          
+          // 1. Update Catcher Position
+          const cs = catcherState.current;
+          const speed = cs.isDashing ? CATCH_DASH_SPEED : CATCH_BASE_SPEED;
+          if (cs.isMovingLeft) cs.x = Math.max(0, cs.x - speed * delta);
+          if (cs.isMovingRight) cs.x = Math.min(OSU_RES_X, cs.x + speed * delta);
+          
+          const catcherScreenX = cs.x * t.scale + t.offsetX;
+          const catcherScreenY = CATCHER_Y_OFFSET * t.scale + t.offsetY;
+          const catcherWidthPx = cs.width * t.scale;
+
+          // 2. Render Falling Objects
+          for (let i = nextHittableIndex.current; i < list.length; i++) {
+             const obj = list[i];
+             
+             // Keep slider alive longer so tails don't disappear prematurely
+             const aliveTime = obj.type === HitObjectType.SLIDER ? obj.endTime + 1000 : obj.time + 200;
+             if ((obj.hit || obj.missed) && currentTime > aliveTime) {
+                 if (i === nextHittableIndex.current) nextHittableIndex.current++;
+                 continue;
+             }
+             
+             const progress = 1 - (obj.time - currentTime) / approachTime;
+             
+             // Culling (Too early)
+             if (progress < -0.5) break;
+
+             // SPINNER LOGIC: BANANA RAIN
+             if (obj.type === HitObjectType.SPINNER) {
+                 if (currentTime >= obj.time && currentTime <= obj.endTime) {
+                     if (now - lastBananaSpawn.current > 100) { 
+                         lastBananaSpawn.current = now;
+                         activeBananas.current.push({
+                             x: Math.random() * OSU_RES_X,
+                             y: -50, speed: 0.3 + Math.random() * 0.4,
+                             caught: false, id: Math.random()
+                         });
+                     }
+                 }
+                 continue; 
+             }
+
+             const objY = progress * CATCHER_Y_OFFSET;
+             const fruitSize = (circleRadius * CATCH_FRUIT_SCALE) * t.scale * 2.5; 
+             const radius = fruitSize / 2;
+             const hitThreshold = (cs.width / 2) + (radius / t.scale * 0.8);
+
+             const ox = obj.x * t.scale + t.offsetX;
+             const oy = objY * t.scale + t.offsetY;
+             const colors = getFruitColor(obj.x, i);
+
+             if (obj.type === HitObjectType.CIRCLE) {
+                 if (!obj.hit && !obj.missed) {
+                     // Hit Detection
+                     if (progress >= 1.0) { 
+                         const dx = Math.abs(obj.x - cs.x);
+                         if (dx <= hitThreshold) { 
+                             obj.hit = true; updateScore(300, '300'); 
+                             continue;
+                         } else if (progress > 1.05) { 
+                             obj.missed = true; updateScore(0, 'miss');
+                         }
+                     }
+
+                     if (!obj.missed) {
+                         // Render Fruit
+                         ctx.fillStyle = colors.fill; ctx.strokeStyle = 'white'; ctx.lineWidth = 3;
+                         ctx.beginPath(); ctx.arc(ox, oy, fruitSize / 2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                         // Detail
+                         ctx.beginPath(); ctx.arc(ox - fruitSize/6, oy - fruitSize/6, fruitSize/6, 0, Math.PI*2); 
+                         ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.fill();
+                         // Leaf
+                         ctx.beginPath(); ctx.moveTo(ox, oy - fruitSize/2); 
+                         ctx.quadraticCurveTo(ox + 5, oy - fruitSize/2 - 10, ox + 10, oy - fruitSize/2 - 5);
+                         ctx.strokeStyle = '#44cc44'; ctx.lineWidth = 4; ctx.stroke();
+                     }
+                 }
+             } else if (obj.type === HitObjectType.SLIDER) {
+                 // SLIDER LOGIC
+                 if (!obj.caughtDroplets) obj.caughtDroplets = new Set();
+                 
+                 const duration = obj.endTime - obj.time;
+                 const dropletInterval = 50; // ms between droplets
+                 const totalDroplets = Math.floor(duration / dropletInterval);
+                 const lastPt = obj.sliderPoints ? obj.sliderPoints[obj.sliderPoints.length-1] : {x: obj.x, y: 0};
+                 
+                 // 1. Render/Update Droplets (Reverse order to draw top-down if needed, but standard usually fine)
+                 for (let d = 1; d <= totalDroplets; d++) {
+                    if (obj.caughtDroplets.has(d)) continue; // Already caught
+
+                    const dTime = obj.time + d * dropletInterval;
+                    const dProgress = 1 - (dTime - currentTime) / approachTime;
+                    
+                    // Culling
+                    if (dProgress < 0) continue; 
+                    if (dProgress > 1.1) { // Fell off screen
+                        // Mark as processed/missed implicitly by not rendering, but we keep set small
+                        continue; 
+                    }
+                    
+                    // Position
+                    const pathRatio = (dTime - obj.time) / duration;
+                    const dx = obj.x + (lastPt.x - obj.x) * pathRatio;
+                    
+                    const dox = dx * t.scale + t.offsetX;
+                    const doy = (dProgress * CATCHER_Y_OFFSET) * t.scale + t.offsetY;
+                    
+                    // Check Hit
+                    if (dProgress >= 1.0 && dProgress <= 1.05) {
+                         const distX = Math.abs(dx - cs.x);
+                         if (distX <= hitThreshold) {
+                             obj.caughtDroplets.add(d);
+                             updateScore(10, '50');
+                             continue;
+                         }
+                    }
+                    
+                    // Render Droplet
+                    const isTick = d % 8 === 0; // Large ticks
+                    const dSize = isTick ? fruitSize * 0.40 : fruitSize * 0.25; // Slightly larger for better visibility
+                    
+                    ctx.beginPath(); ctx.arc(dox, doy, dSize, 0, Math.PI*2); 
+                    if (isTick) {
+                        ctx.fillStyle = colors.fill; ctx.strokeStyle = 'white'; ctx.lineWidth = 1;
+                        ctx.fill(); ctx.stroke();
+                    } else {
+                        ctx.fillStyle = 'white'; ctx.fill(); 
+                    }
+                 }
+                 
+                 // 2. Head Fruit (Start)
+                 if (!obj.hit) {
+                     if (progress >= 1.0) {
+                         const dx = Math.abs(obj.x - cs.x);
+                         if (dx <= hitThreshold) { 
+                             obj.hit = true; updateScore(300, '300'); 
+                         } else if (progress > 1.05) {
+                             // Head missed
+                             obj.hit = true; // Mark hit to stop checking, but no score (effectively missed head)
+                         }
+                     }
+                     if (!obj.hit && progress <= 1.05 && progress >= 0) {
+                        ctx.fillStyle = colors.fill; ctx.strokeStyle = 'white'; ctx.lineWidth = 3;
+                        ctx.beginPath(); ctx.arc(ox, oy, fruitSize/2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                        // Leaf
+                        ctx.beginPath(); ctx.moveTo(ox, oy - fruitSize/2); 
+                        ctx.quadraticCurveTo(ox + 5, oy - fruitSize/2 - 10, ox + 10, oy - fruitSize/2 - 5);
+                        ctx.strokeStyle = '#44cc44'; ctx.lineWidth = 4; ctx.stroke();
+                     }
+                 }
+
+                 // 3. Tail Fruit (End)
+                 if (!obj.tailCaught) {
+                     const tailProgress = 1 - (obj.endTime - currentTime) / approachTime;
+                     
+                     if (tailProgress >= 1.0 && tailProgress <= 1.05) {
+                         const dx = Math.abs(lastPt.x - cs.x);
+                         if (dx <= hitThreshold) {
+                             obj.tailCaught = true; updateScore(300, '300');
+                         }
+                     }
+
+                     if (tailProgress <= 1.05 && tailProgress >= 0) {
+                         const tailOx = lastPt.x * t.scale + t.offsetX;
+                         const tailOy = (tailProgress * CATCHER_Y_OFFSET) * t.scale + t.offsetY;
+                         ctx.fillStyle = colors.fill; ctx.strokeStyle = 'white'; ctx.lineWidth = 3;
+                         ctx.beginPath(); ctx.arc(tailOx, tailOy, fruitSize/2, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+                         ctx.beginPath(); ctx.moveTo(tailOx, tailOy - fruitSize/2); 
+                         ctx.quadraticCurveTo(tailOx + 5, tailOy - fruitSize/2 - 10, tailOx + 10, tailOy - fruitSize/2 - 5);
+                         ctx.strokeStyle = '#44cc44'; ctx.lineWidth = 4; ctx.stroke();
+                     }
+                 }
+             }
+          }
+
+          // 3. Render Active Bananas (from Spinner)
+          activeBananas.current.forEach((b) => {
+              if (b.caught) return;
+              b.y += b.speed * delta;
+              const bx = b.x * t.scale + t.offsetX;
+              const by = b.y * t.scale + t.offsetY;
+              const bSize = 35 * t.scale;
+              
+              if (b.y + 15 >= CATCHER_Y_OFFSET) {
+                  const xDiff = Math.abs(b.x - cs.x);
+                  if (xDiff <= cs.width / 1.8 && b.y <= CATCHER_Y_OFFSET + 40) {
+                      b.caught = true; updateScore(100, '100');
+                  } else if (b.y > OSU_RES_Y + 50) b.caught = true; 
+              }
+              
+              if (!b.caught) {
+                  ctx.fillStyle = '#ffee00'; ctx.strokeStyle = '#ccaa00'; ctx.lineWidth = 2;
+                  ctx.beginPath(); ctx.arc(bx, by, bSize/2, 0.5, Math.PI - 0.5); 
+                  ctx.quadraticCurveTo(bx, by - bSize/2, bx + bSize/2, by); ctx.fill(); ctx.stroke();
+              }
+          });
+          activeBananas.current = activeBananas.current.filter(b => !b.caught);
+
+          // 4. Render Catcher (Yuzu Style)
+          const isDash = cs.isDashing;
+          const plateRimY = catcherScreenY;
+          const plateBottomY = catcherScreenY + 20 * t.scale;
+
+          ctx.beginPath();
+          ctx.moveTo(catcherScreenX - catcherWidthPx/2 - 5, plateRimY);
+          ctx.lineTo(catcherScreenX + catcherWidthPx/2 + 5, plateRimY);
+          ctx.bezierCurveTo(catcherScreenX + catcherWidthPx/2, plateBottomY, catcherScreenX - catcherWidthPx/2, plateBottomY, catcherScreenX - catcherWidthPx/2 - 5, plateRimY);
+          
+          const plateGrad = ctx.createLinearGradient(catcherScreenX, plateRimY, catcherScreenX, plateBottomY);
+          plateGrad.addColorStop(0, '#ffffff');
+          plateGrad.addColorStop(0.5, isDash ? '#ffaaaa' : '#aaddff');
+          plateGrad.addColorStop(1, isDash ? '#ff4444' : '#0088ff');
+          
+          ctx.fillStyle = plateGrad; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
+          
+          if (isDash) { ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20; ctx.stroke(); ctx.shadowBlur = 0; }
+
+          const charY = plateBottomY + 5 * t.scale;
+          const headSize = 25 * t.scale;
+          
+          ctx.fillStyle = '#ffddaa'; ctx.beginPath(); ctx.arc(catcherScreenX, charY + headSize/2, headSize, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(catcherScreenX, charY + headSize/2, headSize * 1.1, Math.PI, 0); ctx.fill();
+          
+          ctx.fillStyle = 'blue';
+          const lookDir = cs.direction * 4 * t.scale;
+          ctx.beginPath(); ctx.arc(catcherScreenX - 8*t.scale + lookDir, charY + headSize/2, 3*t.scale, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(catcherScreenX + 8*t.scale + lookDir, charY + headSize/2, 3*t.scale, 0, Math.PI*2); ctx.fill();
+          
+          ctx.fillStyle = '#333'; ctx.fillRect(catcherScreenX - 12*t.scale, charY + headSize * 1.2, 24*t.scale, 20*t.scale);
+          
+          ctx.strokeStyle = '#ffddaa'; ctx.lineWidth = 4 * t.scale;
+          ctx.beginPath(); ctx.moveTo(catcherScreenX - 12*t.scale, charY + headSize * 1.2); ctx.lineTo(catcherScreenX - 25*t.scale, plateBottomY); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(catcherScreenX + 12*t.scale, charY + headSize * 1.2); ctx.lineTo(catcherScreenX + 25*t.scale, plateBottomY); ctx.stroke();
       }
 
       if (allDone && currentTime > beatmap.duration) { onFinish(scoreRef.current); return; }
@@ -831,7 +1103,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
         </div>
         
         {/* Progress Bar & Combo - hide for Taiko bottom area or adjust */}
-        {beatmap.mode !== GameMode.TAIKO && beatmap.mode !== GameMode.MANIA && (
+        {beatmap.mode !== GameMode.TAIKO && beatmap.mode !== GameMode.MANIA && beatmap.mode !== GameMode.CATCH && (
             <div className="flex items-end justify-between">
             <div className="text-9xl font-black italic text-white drop-shadow-[0_0_30px_rgba(0,0,0,0.8)] select-none"> {displayScore.combo > 1 && `${displayScore.combo}x`} </div>
             <div className="w-1/4 h-2 bg-white/10 rounded-full overflow-hidden border border-white/5">
@@ -839,8 +1111,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
             </div>
             </div>
         )}
-        {/* Special Taiko/Mania Combo Display */}
-        {(beatmap.mode === GameMode.TAIKO || beatmap.mode === GameMode.MANIA) && (
+        {/* Special Taiko/Mania/Catch Combo Display */}
+        {(beatmap.mode === GameMode.TAIKO || beatmap.mode === GameMode.MANIA || beatmap.mode === GameMode.CATCH) && (
              <div className="absolute bottom-10 left-10">
                  <div className="text-8xl font-black italic text-white drop-shadow-[0_0_30px_rgba(0,0,0,0.8)] select-none"> {displayScore.combo > 1 && `${displayScore.combo}x`} </div>
              </div>
