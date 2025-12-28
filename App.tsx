@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { GameState, Beatmap, ScoreData, BeatmapSet, SkinData, UserSettings, GameMode } from './types';
 import { loadOsz, loadOsk } from './utils/beatmapParser';
@@ -84,44 +83,56 @@ const App: React.FC = () => {
     const ctx = getAudioCtx();
     if (ctx.state === 'suspended') await ctx.resume();
 
-    // VITE CONFIGURATION NOTE:
-    // Files in the 'public' folder are served at the root path.
-    // Ensure your files are named '1.osz' and '2.osz' inside the 'public/beatmaps/' folder.
-    const recommendedFiles = [
-        '/beatmaps/1.osz',
-        '/beatmaps/2.osz'
-    ];
-    
     const newMaps: Beatmap[] = [];
     let successCount = 0;
 
-    for (const url of recommendedFiles) {
-        try {
-            console.log(`Versuche Beatmap zu laden: ${url}`);
-            const response = await fetch(url);
-            if (response.ok) {
-                const blob = await response.blob();
-                const maps = await loadOsz(blob, ctx);
-                if (maps.length > 0) {
-                    newMaps.push(...maps);
-                    successCount++;
-                    console.log(`Erfolg: ${url} geladen.`);
-                }
-            } else {
-                console.warn(`Fehler beim Laden von ${url}: Status ${response.status}`);
-            }
-        } catch (e) {
-            console.warn(`Netzwerkfehler bei ${url}`, e);
+    try {
+        // 1. Fetch the manifest list to "scan" the folder
+        console.log("Scanning beatmaps directory via list.json...");
+        const listResponse = await fetch('/beatmaps/list.json');
+        
+        if (!listResponse.ok) {
+            throw new Error("Could not find '/beatmaps/list.json'. Please create this file to list your beatmaps.");
         }
-    }
 
-    if (newMaps.length > 0) {
-        setAllBeatmaps(prev => [...newMaps, ...prev]);
-        // Force update trick if needed, or just set state
-        setTimeout(() => setGameState(GameState.SONG_SELECT), 100);
-    } else {
-        alert("Es wurden keine Beatmaps gefunden!\n\nBitte stelle sicher, dass im Ordner 'public/beatmaps/' die Dateien '1.osz' und '2.osz' liegen.");
-        // Still go to song select so they can drag & drop
+        const filenames: string[] = await listResponse.json();
+        console.log(`Found ${filenames.length} beatmaps in list:`, filenames);
+
+        // 2. Iterate through the dynamic list
+        for (const filename of filenames) {
+            const url = `/beatmaps/${filename}`;
+            try {
+                console.log(`Downloading: ${url}`);
+                const response = await fetch(url);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    // Pass the blob with the correct name to the parser
+                    const file = new File([blob], filename); 
+                    const maps = await loadOsz(file, ctx);
+                    
+                    if (maps.length > 0) {
+                        newMaps.push(...maps);
+                        successCount++;
+                    }
+                } else {
+                    console.warn(`Failed to download ${url}: ${response.status}`);
+                }
+            } catch (e) {
+                console.warn(`Network error for ${url}`, e);
+            }
+        }
+
+        if (newMaps.length > 0) {
+            setAllBeatmaps(prev => [...newMaps, ...prev]);
+            setTimeout(() => setGameState(GameState.SONG_SELECT), 100);
+        } else {
+            alert("No valid beatmaps found in the scanned files.");
+            setGameState(GameState.SONG_SELECT);
+        }
+
+    } catch (err: any) {
+        console.error(err);
+        alert(`Error scanning beatmaps: ${err.message}`);
         setGameState(GameState.SONG_SELECT);
     }
 
