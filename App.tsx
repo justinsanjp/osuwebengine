@@ -19,9 +19,18 @@ const App: React.FC = () => {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   
+  // Safe initialization of settings to prevent crashes from old/corrupt localStorage data
   const [settings, setSettings] = useState<UserSettings>(() => {
-    const saved = localStorage.getItem('osu_settings');
-    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+    try {
+        const saved = localStorage.getItem('osu_settings');
+        if (!saved) return DEFAULT_SETTINGS;
+        const parsed = JSON.parse(saved);
+        // Merge with DEFAULT_SETTINGS to ensure new fields (like 'language') exist even if local storage is old
+        return { ...DEFAULT_SETTINGS, ...parsed };
+    } catch (e) {
+        console.warn("Failed to parse settings, resetting to defaults", e);
+        return DEFAULT_SETTINGS;
+    }
   });
 
   const [awaitingKey, setAwaitingKey] = useState<{mode: keyof UserSettings['keys'], index: number} | null>(null);
@@ -29,9 +38,10 @@ const App: React.FC = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const previewSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  // Translation helper
+  // Translation helper - safely fallback to 'en' if language is missing
   const t = (key: keyof typeof TRANSLATIONS['en']) => {
-    return TRANSLATIONS[settings.language][key];
+    const lang = settings.language || 'en';
+    return TRANSLATIONS[lang][key] || TRANSLATIONS['en'][key];
   };
 
   useEffect(() => {
