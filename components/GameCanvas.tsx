@@ -38,7 +38,7 @@ const lerp = (start: number, end: number, factor: number) => {
 };
 
 // Helper for Catch Colors (Cycle based on index or x)
-const getFruitColor = (x: number, index: number) => {
+const getFruitColor = (_x: number, index: number) => {
     // Simple cycle: Red (Apple), Blue (Grapes), Green (Pear), Orange (Orange)
     const cycle = index % 4;
     if (cycle === 0) return { fill: '#ff4444', border: '#aa2222', type: 'apple' }; 
@@ -318,7 +318,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
       }
     };
 
-    const mousedown = (e: MouseEvent) => {
+    const mousedown = (_e: MouseEvent) => {
       if (beatmap.mode === GameMode.STANDARD) {
           mouseState.current.isDown = true;
           handleStandardInput(visualMouse.current.x, visualMouse.current.y);

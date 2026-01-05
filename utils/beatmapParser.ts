@@ -1,6 +1,6 @@
 
 import JSZip from 'jszip';
-import { Beatmap, HitObject, HitObjectType, TimingPoint, SkinData, GameMode } from '../types';
+import { Beatmap, HitObject, HitObjectType, SkinData, GameMode } from '../types';
 
 export const parseOsuFile = (content: string, sourceFile: string): Partial<Beatmap> => {
   const lines = content.split(/\r?\n/);
