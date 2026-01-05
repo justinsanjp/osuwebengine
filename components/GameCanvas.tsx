@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Beatmap, ScoreData, HitObject, HitObjectType, SkinData, UserSettings, GameMode } from '../types';
-import { COLORS, HIT_WINDOW_300, HIT_WINDOW_100, HIT_WINDOW_50 } from '../constants';
+import { COLORS, HIT_WINDOW_300, HIT_WINDOW_100, HIT_WINDOW_50, TRANSLATIONS } from '../constants';
 
 interface GameCanvasProps {
   beatmap: Beatmap;
@@ -453,7 +453,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
                 if (obj.type === HitObjectType.SLIDER && obj.sliderPoints) {
                   const pLen = obj.sliderPoints.length - 1;
                   ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                  ctx.lineWidth = circleRadius * 2 * t.scale; ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                  ctx.lineWidth = circleRadius * 2 * t.scale; 
+                  // Change opacity for better visibility (pinkish accent with 0.5 opacity)
+                  ctx.strokeStyle = 'rgba(255, 102, 170, 0.5)';
+                  
                   ctx.moveTo(sx, sy);
                   for (let pIdx = 1; pIdx <= pLen; pIdx++) ctx.lineTo(obj.sliderPoints[pIdx].x * t.scale + t.offsetX, obj.sliderPoints[pIdx].y * t.scale + t.offsetY);
                   ctx.stroke();
@@ -484,7 +487,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
                   }
                 }
 
-                if (currentTime <= obj.time || obj.type === HitObjectType.SLIDER) {
+                // Logic modified to hide slider head immediately after it is hit
+                if (currentTime <= obj.time || (obj.type === HitObjectType.SLIDER && !obj.hit)) {
                   const alpha = Math.min(1, (approachTime - timeUntilHit) / 200);
                   ctx.globalAlpha = alpha;
                   
@@ -1099,7 +1103,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ beatmap, audioCtx, skin, settin
               <div className="text-7xl font-black italic tracking-tighter text-white tabular-nums"> {displayScore.totalScore.toLocaleString()} </div>
               <div className="text-3xl text-pink-400 font-black italic">{displayScore.accuracy.toFixed(2)}%</div>
            </div>
-           <button onClick={onBack} className="pointer-events-auto bg-black/40 hover:bg-pink-600 px-8 py-4 rounded-2xl backdrop-blur-2xl border border-white/10 transition-all font-black italic text-sm hover:scale-110"> QUIT (ESC) </button>
+           <button onClick={onBack} className="pointer-events-auto bg-black/40 hover:bg-pink-600 px-8 py-4 rounded-2xl backdrop-blur-2xl border border-white/10 transition-all font-black italic text-sm hover:scale-110"> {TRANSLATIONS[settings.language].quit} </button>
         </div>
         
         {/* Progress Bar & Combo - hide for Taiko bottom area or adjust */}

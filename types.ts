@@ -20,7 +20,10 @@ export enum HitObjectType {
   SPINNER = 8
 }
 
+export type Language = 'en' | 'jp';
+
 export interface UserSettings {
+  language: Language;
   keys: {
     standard: string[];
     taiko: string[];
